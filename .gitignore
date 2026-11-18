@@ -1,0 +1,18 @@
+# build output
+/target
+
+# never commit secrets in a public sandbox
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+*.secret
+
+# editor / OS noise
+.DS_Store
+.idea/
+.vscode/
