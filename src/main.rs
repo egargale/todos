@@ -33,7 +33,10 @@ struct Cli {
     tags: Vec<String>,
 
     /// Emit JSON.
-    #[arg(long)]
+    ///
+    /// Global, so it is accepted both before and after the subcommand
+    /// (`todos --json check` and `todos check --json` are the same run).
+    #[arg(long, global = true)]
     json: bool,
 
     #[command(subcommand)]
@@ -69,7 +72,9 @@ fn main() -> ExitCode {
     match cli.command {
         None => list(&cli.path, &tags, cli.json),
         Some(Command::Stats) => stats(&cli.path, &tags),
-        Some(Command::Check { base, staged, all }) => check(&cli.path, &tags, &base, staged, all),
+        Some(Command::Check { base, staged, all }) => {
+            check(&cli.path, &tags, cli.json, &base, staged, all)
+        }
     }
 }
 
@@ -114,7 +119,14 @@ fn stats(root: &std::path::Path, tags: &[String]) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn check(root: &std::path::Path, tags: &[String], base: &str, staged: bool, all: bool) -> ExitCode {
+fn check(
+    root: &std::path::Path,
+    tags: &[String],
+    json: bool,
+    base: &str,
+    staged: bool,
+    all: bool,
+) -> ExitCode {
     let disc = discover::discover(root);
 
     let current = if all {
@@ -153,13 +165,30 @@ fn check(root: &std::path::Path, tags: &[String], base: &str, staged: bool, all:
     if flagged.is_empty() {
         let scope = if compared { "diff" } else { "tree" };
         eprintln!("todos: no markers found in {scope}");
+        if json {
+            // STDOUT carries one JSON array, `[]` for the clean case, so a
+            // consumer can parse it unconditionally.
+            if let Err(e) = report::json(&flagged) {
+                eprintln!("todos: {e}");
+                return ExitCode::from(2);
+            }
+        }
         return ExitCode::SUCCESS;
     }
 
+    // Diagnostics stay on STDERR in both modes: STDOUT is data, STDERR is
+    // diagnosis. In JSON mode STDOUT carries the array and nothing else.
     for m in &flagged {
         eprintln!("{}:{}:{} {} {}", m.file, m.line, m.col, m.tag, m.text);
     }
     let noun = if compared { "new marker(s)" } else { "marker(s)" };
     eprintln!("\ntodos: {} {noun}", flagged.len());
+
+    if json {
+        if let Err(e) = report::json(&flagged) {
+            eprintln!("todos: {e}");
+            return ExitCode::from(2);
+        }
+    }
     ExitCode::from(1)
 }
